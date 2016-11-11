@@ -1,6 +1,8 @@
 #ifndef _UAPI_LINUX_SCHED_H
 #define _UAPI_LINUX_SCHED_H
 
+
+
 /*
  * cloning flags:
  */
@@ -30,6 +32,10 @@
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 #define CLONE_IO		0x80000000	/* Clone io context */
 
+
+
+
+
 /*
  * Scheduling policies
  */
@@ -40,6 +46,7 @@
 /* SCHED_ISO: reserved but not implemented yet */
 #define SCHED_IDLE		5
 #define SCHED_DEADLINE		6
+#define SCHED_UNACLOUD		7
 
 /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
 #define SCHED_RESET_ON_FORK     0x40000000
@@ -50,3 +57,4 @@
 #define SCHED_FLAG_RESET_ON_FORK	0x01
 
 #endif /* _UAPI_LINUX_SCHED_H */
+

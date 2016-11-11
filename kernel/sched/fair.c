@@ -1,3 +1,5 @@
+
+
 /*
  * Completely Fair Scheduling (CFS) Class (SCHED_NORMAL/SCHED_BATCH)
  *
@@ -4226,8 +4228,7 @@ static inline void hrtick_update(struct rq *rq)
  * increased. Here we update the fair scheduling stats and
  * then put the task into the rbtree:
  */
-static void
-enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+static void enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
@@ -5016,8 +5017,7 @@ static int get_cpu_usage(int cpu)
  *
  * preempt must be disabled.
  */
-static int
-select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
+static int select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
 {
 	struct sched_domain *tmp, *affine_sd = NULL, *sd = NULL;
 	int cpu = smp_processor_id();
@@ -5101,8 +5101,7 @@ unlock:
  * previous cpu.  However, the caller only guarantees p->pi_lock is held; no
  * other assumptions, including the state of rq->lock, should be made.
  */
-static void
-migrate_task_rq_fair(struct task_struct *p, int next_cpu)
+static void migrate_task_rq_fair(struct task_struct *p, int next_cpu)
 {
 	struct sched_entity *se = &p->se;
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
@@ -5284,8 +5283,7 @@ preempt:
 		set_last_buddy(se);
 }
 
-static struct task_struct *
-pick_next_task_fair(struct rq *rq, struct task_struct *prev)
+static struct task_struct * pick_next_task_fair(struct rq *rq, struct task_struct *prev)
 {
 	struct cfs_rq *cfs_rq = &rq->cfs;
 	struct sched_entity *se;
@@ -8083,8 +8081,7 @@ static void task_fork_fair(struct task_struct *p)
  * Priority of the task has changed. Check to see if we preempt
  * the current task.
  */
-static void
-prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
+static void prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
 {
 	if (!task_on_rq_queued(p))
 		return;
@@ -8315,7 +8312,7 @@ void unregister_fair_sched_group(struct task_group *tg, int cpu)
 	* check on_list without danger of it being re-added.
 	*/
 	if (!tg->cfs_rq[cpu]->on_list)
-		return;
+		return; 
 
 	raw_spin_lock_irqsave(&rq->lock, flags);
 	list_del_leaf_cfs_rq(tg->cfs_rq[cpu]);
@@ -8422,10 +8419,10 @@ static unsigned int get_rr_interval_fair(struct rq *rq, struct task_struct *task
 }
 
 /*
- * All the scheduling class methods:
+ * All the scheduling class methods: 
  */
-const struct sched_class fair_sched_class = {
-	.next			= &idle_sched_class,
+const struct sched_class fair_sched_class = {		
+	.next			= &unacloud_sched_class,
 	.enqueue_task		= enqueue_task_fair,
 	.dequeue_task		= dequeue_task_fair,
 	.yield_task		= yield_task_fair,
@@ -8439,7 +8436,7 @@ const struct sched_class fair_sched_class = {
 #ifdef CONFIG_SMP
 	.select_task_rq		= select_task_rq_fair,
 	.migrate_task_rq	= migrate_task_rq_fair,
-
+	
 	.rq_online		= rq_online_fair,
 	.rq_offline		= rq_offline_fair,
 
