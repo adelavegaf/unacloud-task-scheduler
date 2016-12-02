@@ -352,12 +352,13 @@ struct cfs_bandwidth {};
 
 /* CFS-related fields in a runqueue */
 struct unacloud_rq {
-	struct task_struct *unacloud_task;
+	struct list_head unacloud_list; // Falta hacer un STATIC LIST_HEAD(unacloud_list);
 };
 struct cfs_rq {
 	struct load_weight load;
 	unsigned int nr_running, h_nr_running;
 
+	
 	u64 exec_clock;
 	u64 min_vruntime;
 #ifndef CONFIG_64BIT
@@ -710,6 +711,8 @@ struct rq {
 #endif
 };
 
+
+
 static inline int cpu_of(struct rq *rq)
 {
 #ifdef CONFIG_SMP
@@ -731,6 +734,9 @@ static inline u64 __rq_clock_broken(struct rq *rq)
 {
 	return READ_ONCE(rq->clock);
 }
+
+
+
 
 static inline u64 rq_clock(struct rq *rq)
 {

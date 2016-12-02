@@ -14,9 +14,40 @@
 
 #include "sched.h"
 
+
+static int should_run_unacloud(void)
+{
+	int countRunning = 0;
+	int countUnacloud = 0;
+	int i = 0;
+	for_each_possible_cpu(i) {
+		struct rq *rq = cpu_rq(i);
+		if (rq->curr){
+			struct task_struct *curr = rq->curr;
+			if (curr->sched_class == &unacloud_sched_class)
+				countUnacloud++;
+			else if (curr->sched_class != &idle_sched_class)
+				countRunning++;
+		}
+	}
+	if (countUnacloud > 0)
+	{
+		printk("should_run_unacloud: %d, %d\n", countUnacloud, countRunning);
+	}
+	return countUnacloud + countRunning < 5;
+}
+
+
+
+
+static inline struct task_struct *unacloud_task_of(struct sched_unacloud_entity *unacloud)
+{
+	return container_of (unacloud, struct task_struct, unacloud_se);
+}
+
 static void update_curr_unacloud(struct rq *rq)
 {
-	//printk("unacloud: update_curr_unacloud RQ: %d\n", rq->cpu);
+	printk("unacloud: update_curr_unacloud RQ: %d\n", rq->cpu);
 	struct task_struct *curr = rq->curr;
 	u64 delta_exec;
 
@@ -27,46 +58,54 @@ static void update_curr_unacloud(struct rq *rq)
 	if (unlikely((s64)delta_exec <= 0))
 		return;
 
-	schedstat_set(curr->se.statistics.exec_max,
-		max(curr->se.statistics.exec_max, delta_exec));
+	schedstat_set(curr->se.statistics.exec_max, max(curr->se.statistics.exec_max, delta_exec));
 
 	curr->se.sum_exec_runtime += delta_exec;
 
 	curr->se.exec_start = rq_clock_task(rq);
+	cpuacct_charge(curr, delta_exec);
 }
+
+
 
 static struct task_struct * pick_next_task_unacloud(struct rq *rq, struct task_struct *prev)
 {
-	if (rq->unacloud_rq.unacloud_task != NULL)
-	{
-		//printk("unacloud: pick_next_task_unacloud: hay tarea. PID: %d RQ: %d\n", rq->unacloud_rq.unacloud_task->pid, rq->cpu);
-		
-		if (prev->sched_class == &unacloud_sched_class)
-			update_curr_unacloud(rq);
-		
-		put_prev_task(rq, prev);
-		rq->unacloud_rq.unacloud_task->se.exec_start = rq_clock_task(rq);
-		return rq->unacloud_rq.unacloud_task;
-	}
-	else
-	{
-		//printk("unacloud: pick_next_task_unacloud: No hay tareas PID: %d\n", prev->pid);
+	if (list_empty(&rq->unacloud_rq.unacloud_list) || !should_run_unacloud())
 		return NULL;
+	
+	printk("pick_next_task_unacloud RQ: %d", rq->cpu);
+	
+	struct sched_unacloud_entity * use2;
+	
+	list_for_each_entry(use2, &rq->unacloud_rq.unacloud_list, run_list)
+	{
+		if (use2 == NULL)
+		{
+			printk("NULL, ");
+		}
+		else
+		{
+			printk("%d, ", unacloud_task_of(use2)->pid);
+		}	
 	}
+	
+	printk("\n");
+	
+	put_prev_task(rq, prev);
+	struct sched_unacloud_entity * use;
+	list_for_each_entry(use, &rq->unacloud_rq.unacloud_list, run_list)
+	{
+		return unacloud_task_of(use);
+	}
+	return NULL;
 }
 
 static void enqueue_task_unacloud(struct rq *rq, struct task_struct *p, int flags)
 {
-	if (rq->unacloud_rq.unacloud_task == NULL)
-	{
-		//printk("unacloud: enqueue_task_unacloud: Puse tarea PID: %d RQ: %d\n", p->pid, rq->cpu);
-		rq->unacloud_rq.unacloud_task = p;
-		p->se.unacloud_time = 25;
-	}
-	else
-	{
-		//printk("unacloud: enqueue_task_unacloud: Esta intentando encolar una tarea adicional PID: %d RQ: %d\n", p->pid, rq->cpu);
-	}
+	printk("enqueue_task_unacloud PID: %d\n", p->pid);
+	struct sched_unacloud_entity *unacloud_se = &p->unacloud_se;
+	unacloud_se->unacloud_time = 25;
+	list_add_tail(&unacloud_se->run_list, &rq->unacloud_rq.unacloud_list);
 }
 
 /*
@@ -76,16 +115,10 @@ static void enqueue_task_unacloud(struct rq *rq, struct task_struct *p, int flag
  */
 static void dequeue_task_unacloud(struct rq *rq, struct task_struct *p, int flags)
 {
-	if (rq->unacloud_rq.unacloud_task == p)
-	{
-		update_curr_unacloud(rq);
-		//printk("unacloud: dequeue_task_unacloud: va a quitar la tarea PID: %d RQ: %d\n", p->pid, rq->cpu);
-		rq->unacloud_rq.unacloud_task = NULL;
-	}
-	else
-	{
-		//printk("unacloud: dequeue_task_unacloud: esta intentando desencolar una tarea que no es PID: %d RQ: %d \n", p->pid, rq->cpu);
-	}
+	printk("dequeue_task_unacloud PID: %d\n", p->pid);
+	update_curr_unacloud(rq);
+	struct sched_unacloud_entity *unacloud_se = &p->unacloud_se;
+	list_del(&unacloud_se->run_list);
 }
 
 /*
@@ -95,12 +128,12 @@ static void dequeue_task_unacloud(struct rq *rq, struct task_struct *p, int flag
  */
 static void yield_task_unacloud(struct rq *rq)
 {
-	//printk("unacloud: yield_to_task_unacloud RQ: %d\n", rq->cpu);
+	printk("unacloud: yield_to_task_unacloud RQ: %d\n", rq->cpu);
 }
 
 static bool yield_to_task_unacloud(struct rq *rq, struct task_struct *p, bool preempt)
 {
-	//printk("unacloud: yield_to_task_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
+	printk("unacloud: yield_to_task_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
 	return true;
 }
 
@@ -109,7 +142,7 @@ static bool yield_to_task_unacloud(struct rq *rq, struct task_struct *p, bool pr
  */
 static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
 {
-	//printk("check_preempt_wakeup_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
+	printk("check_preempt_wakeup_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
 }
 
 /*
@@ -118,7 +151,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 static void put_prev_task_unacloud(struct rq *rq, struct task_struct *prev)
 {
 	update_curr_unacloud(rq);
-	//printk("put_prev_task_unacloud PID: %d RQ: %d\n", prev->pid, rq->cpu);
+	printk("put_prev_task_unacloud PID: %d RQ: %d\n", prev->pid, rq->cpu);
 }
 
 
@@ -132,11 +165,11 @@ static void set_curr_task_unacloud(struct rq *rq)
 {
 	struct task_struct *p = rq->curr;
 	
-	//printk("unacloud: set_curr_task_rt START PID: %d on_rt: %d RQ: %d\n", p->pid, p == rq->unacloud_rq.unacloud_task ? 1 : 0, rq->cpu);
+	printk("unacloud: set_curr_task_rt START PID: %d RQ: %d\n", p->pid, rq->cpu);
 	
 	p->se.exec_start = rq_clock_task(rq);
 	
-	//printk("unacloud: set_curr_task_rt END PID: %d on_rt: %d RQ: %d\n", p->pid, p == rq->unacloud_rq.unacloud_task ? 1 : 0, rq->cpu);
+	printk("unacloud: set_curr_task_rt END PID: %d RQ: %d\n", p->pid, rq->cpu);
 }
 
 /*
@@ -144,13 +177,21 @@ static void set_curr_task_unacloud(struct rq *rq)
  */
 static void task_tick_unacloud(struct rq *rq, struct task_struct *curr, int queued)
 {
-	//printk("unacloud: task_tick_unacloud PID: %d RQ: %d\n", curr->pid, rq->cpu);
 	update_curr_unacloud(rq);
 	if (curr->policy != SCHED_UNACLOUD)
 		return;
-	if (--curr->se.unacloud_time)
+	
+	curr->unacloud_se.unacloud_time--;
+	
+	if (curr->unacloud_se.unacloud_time > 0)
 		return;
-	curr->se.unacloud_time = 25;
+	
+	printk("unacloud: task_tick_unacloud resched PID: %d RQ: %d\n", curr->pid, rq->cpu);
+	
+	curr->unacloud_se.unacloud_time = 25;
+	
+	list_del(&curr->unacloud_se.run_list);
+	list_add_tail(&curr->unacloud_se.run_list, &rq->unacloud_rq.unacloud_list);
 	resched_curr(rq);
 }
 
@@ -161,7 +202,7 @@ static void task_tick_unacloud(struct rq *rq, struct task_struct *curr, int queu
  */
 static void task_fork_unacloud(struct task_struct *p)
 {
-	//printk("unacloud: task_fork_unacloud PID: %d\n", p->pid);
+	printk("unacloud: task_fork_unacloud PID: %d\n", p->pid);
 }
 
 /*
@@ -170,12 +211,12 @@ static void task_fork_unacloud(struct task_struct *p)
  */
 static void prio_changed_unacloud(struct rq *rq, struct task_struct *p, int oldprio)
 {
-	//printk("unacloud: prio_changed_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
+	printk("unacloud: prio_changed_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
 }
 
 static void switched_from_unacloud(struct rq *rq, struct task_struct *p)
 {
-	//printk("unacloud: switched_from_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
+	printk("unacloud: switched_from_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
 }
 
 
@@ -185,7 +226,7 @@ static void switched_from_unacloud(struct rq *rq, struct task_struct *p)
  */
 static void switched_to_unacloud(struct rq *rq, struct task_struct *p)
 {
-	//printk("unacloud: switched_to_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);	
+	printk("unacloud: switched_to_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);	
 	if (rq->curr == p)
 		resched_curr(rq);
 	else
@@ -196,7 +237,7 @@ static void switched_to_unacloud(struct rq *rq, struct task_struct *p)
 
 static unsigned int get_rr_interval_unacloud(struct rq *rq, struct task_struct *task)
 {
-	//printk("unacloud: get_rr_interval_unacloud: 25 PID: %d RQ: %d\n", task->pid, rq->cpu);
+	printk("unacloud: get_rr_interval_unacloud: 25 PID: %d RQ: %d\n", task->pid, rq->cpu);
 	return 25;
 }
 
@@ -222,14 +263,16 @@ static void record_wakee(struct task_struct *p)
 		current->wakee_flips++;
 	}
 }
+
+
 static void task_waking_unacloud(struct task_struct *p)
 {
-	//printk("unacloud: task_waking_unacloud, PID: %d\n", p->pid);
+	printk("unacloud: task_waking_unacloud, PID: %d\n", p->pid);
 	record_wakee(p);
 }
 static void rq_online_unacloud(struct rq *rq)
 {
-	//printk("unacloud: rq_online_unacloud RQ: %d\n", rq->cpu);
+	printk("unacloud: rq_online_unacloud RQ: %d\n", rq->cpu);
 	//update_sysctl();
 
 	//update_runtime_enabled(rq);
@@ -237,7 +280,7 @@ static void rq_online_unacloud(struct rq *rq)
 
 static void rq_offline_unacloud(struct rq *rq)
 {
-	//printk("unacloud: rq_offline_unacloud RQ: %d\n", rq->cpu);
+	printk("unacloud: rq_offline_unacloud RQ: %d\n", rq->cpu);
 	//update_sysctl();
 
 	/* Ensure any throttled groups are reachable by pick_next_task */
@@ -245,31 +288,31 @@ static void rq_offline_unacloud(struct rq *rq)
 }
 static int select_task_rq_unacloud(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
 {
-	//printk("unacloud: select_task_rq_unacloud: RQ: %d\n", prev_cpu);
-	return prev_cpu;
+	printk("unacloud: select_task_rq_unacloud: RQ: %d\n", prev_cpu);
+	return (prev_cpu + 1) % nr_cpu_ids; 
 }
 
 static void migrate_task_rq_unacloud(struct task_struct *p, int next_cpu)
 {
-	//printk("unacloud: migrate_task_rq_unacloud: PID: %d\n", p->pid);
+	printk("unacloud: migrate_task_rq_unacloud: PID: %d\n", p->pid);
 	struct sched_entity *se = &p->se;
 	se->exec_start = 0;
 }
 
 static void task_woken_unacloud(struct rq *rq, struct task_struct *p)
 {
-	//printk("unacloud: task_woken_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
+	printk("unacloud: task_woken_unacloud PID: %d RQ: %d\n", p->pid, rq->cpu);
 }
 
 static void set_cpus_allowed_unacloud(struct task_struct *p,
 	const struct cpumask *new_mask)
 {
-	//printk("unacloud: set_cpus_allowed_unacloud PID: %d\n", p->pid);
+	printk("unacloud: set_cpus_allowed_unacloud PID: %d\n", p->pid);
 }
 
 static void task_dead_unacloud(struct task_struct *p)
 {
-	//printk("unacloud: task_dead_unacloud PID: %d\n", p->pid);
+	printk("unacloud: task_dead_unacloud PID: %d\n", p->pid);
 } 
 
 const struct sched_class unacloud_sched_class = {		
@@ -314,6 +357,6 @@ const struct sched_class unacloud_sched_class = {
 
 void init_unacloud_rq(struct unacloud_rq *rq)
 {
-	rq->unacloud_task = NULL;
+	INIT_LIST_HEAD(&rq->unacloud_list);
 }
 
